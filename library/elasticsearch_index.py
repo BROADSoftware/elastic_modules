@@ -41,11 +41,6 @@ options:
       - The Elasticsearch server base URL to access API. Typically http://elastic1.myserver.com:9200  
     required: true
     default: None
-  es_port:
-    description:
-      - 'Elasticsearch server port'
-    required: false
-    default: 9200
   definition:
     description;
       - Index definition as a json string or as a YAML definition
@@ -53,10 +48,10 @@ options:
     default: None
   state:
     description:
-      - Whether to create (present) or remove (absent) this index
+      - Whether to create (present) or remove (absent) this index. Also accept 'get' value, which return index definition
     required: false
     default: present
-    choices: [ present, absent ]
+    choices: [ present, absent, get ]
 
 '''
 
@@ -87,21 +82,19 @@ logLevel = 'None'
 pp = pprint.PrettyPrinter(indent=2)
 
     
-def log(level, message, *args):
-    x = level+':' + message.format(*args)
-    logs.append(x)
+def log(level, message):
+    logs.append(level + ':' + message)
         
-def debug(message, *args):
+def debug(message):
     if logLevel == 'debug' or logLevel == "info":
-        log("DEBUG", message, *args)
+        log("DEBUG", message)
 
-def info(message, *args):
+def info(message):
     if logLevel == "info" :
-        log("INFO", message, *args)
+        log("INFO", message)
 
-def error(message, *args):
-    x = "" + message.format(*args)
-    module.fail_json(msg = x, logs=logs)    
+def error(message):
+    module.fail_json(msg = message, logs=logs)    
 
 class Parameters:
     pass
@@ -152,7 +145,7 @@ def diffDefinition(target, current, missing=None):
 SETTINGS="settings"
 MAPPINGS="mappings"
 
-class EsAPI:
+class EsApi:
     
     def __init__(self, endpoint):
         self.endpoint = endpoint
@@ -254,7 +247,7 @@ class EsAPI:
 # Possible states                
 PRESENT="present"
 ABSENT="absent"
-ABSENT="get"
+GET="get"
 
             
 def main():
@@ -291,7 +284,7 @@ def main():
     if not p.elasticsearchUrl.endswith("/"):
         p.elasticsearchUrl = p.elasticsearchUrl + "/"
 
-    api = StormRestApi(p.elasticsearchUrl)
+    api = EsApi(p.elasticsearchUrl)
     
     if p.state == ABSENT:
         p.changed = api.deleteIndex(p.name)
@@ -301,13 +294,16 @@ def main():
             error("'definition' attribute must be provided when state == 'present'")
         # From ansible module.net_tools.basic.uri 
         if not isinstance(p.definition, six.string_types):
-            p.body = json.dumps(p.definition)
+            p.definition = json.dumps(p.definition)
         definition = json.loads(p.definition)
         p.changed = api.createIndex(p.name, definition)
         module.exit_json(changed=p.changed, logs=logs)
     elif p.state == GET:
         definition = api.getIndex(p.name)
-        module.exit_json(changed=false, definition=definition, logs=logs)
+        if definition != None:
+            module.exit_json(changed=False, name=p.name, state="present", definition=definition, logs=logs)
+        else:
+            module.exit_json(changed=False, name=p.name, state="absent", logs=logs)
     else:
         error("Invalid state: '{}'".format(p.state))
 
