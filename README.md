@@ -8,11 +8,11 @@ This ansible role host a set of modules aimed to manipulate indices and template
 
 ## Requirements
 
-These modules need the python-requests package to be present on the remote node.
+These modules need the `python-requests` package to be present on the remote node.
 
 # Index creation example Playbook
 
-Elastic index definition can be provided as a json text, using YAML block scalar, as below:
+Elastic index definition can be provided as a JSON text, using YAML block scalar, as below:
 
 ```yaml
 - hosts: elastic1
@@ -154,11 +154,11 @@ So, when required to create an Index, the `elasticsearch_index` module will:
 - If yes, this means existing index is compliant with our provided definition. So, we can stop processing and return successfully.
 - If no, the module will try to adjust if possible. For this it can use the [Update Indices Settings](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-update-settings.html) API or the [Put Mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-put-mapping.html) one.
 
-Note that such adjustement have some limitation. For example, one can update the `number_of_replicas`, but not the `number_of_shards`. Refer to the links to the API above for more information about what can be updated in an open index.
+Note that such adjustment have some limitation. For example, one can update the `number_of_replicas`, but not the `number_of_shards`. Refer to the links to the API above for more information about what can be updated in an open index.
 
-In the case where index can't be updated to fulfill provided definition, an error is generated. Index need to be deleted. (This can be achieved by using this module with `state: absent`)
+In the case where index can't be updated to fulfill provided definition, an error is generated. 
 
-Anoter point to take in account is, for the comparison to be effective, the provided definition must be defined as it will be retrieved by the [Get index](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-get-index.html) API.
+Another point to take in account is, for the comparison to be effective, the provided definition must be defined as it will be retrieved by the [Get index](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-get-index.html) API.
 
 For example, when retrieving an index, you will get the setting definition like:
 
@@ -173,7 +173,7 @@ For example, when retrieving an index, you will get the setting definition like:
 }
 ```
 
-But the elastic documentation state than you can use a simplified form:
+But the elastic documentation state than you can also use a simplified form:
 
 ```yaml
 {
@@ -187,7 +187,7 @@ DON'T USE THIS SIMPLIFIED FORM in you index definition. It will mislead comparis
 
 # Template creation idempotency
 
-Template creation is managed almost the same way then Index creation. Except it is more simple, as a template can be recreated anytime, without loosing any data.
+Template creation is managed almost the same way then Index creation. Except it is simpler, as a template can be recreated anytime, without loosing any data.
 
 But keep in mind template recreation does not affect existing indices.
 
