@@ -191,6 +191,10 @@ Template creation is managed almost the same way then Index creation. Except it 
 
 But keep in mind template recreation does not affect existing indices.
 
+# Limitation
+
+These modules does not provide authentication handling. Contribution welcome. 
+
 # License
 
 GNU GPL
