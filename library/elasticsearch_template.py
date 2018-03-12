@@ -21,10 +21,10 @@
 
 DOCUMENTATION = '''
 ---
-module: elasticsearch_index
-short_description: Manage elasticsearch index
+module: elasticsearch_template
+short_description: Manage elasticsearch index templates
 description:
-     - Allow to create ES indices in an idempotent way.
+     - Allow to create ES templates in an idempotent way.
 notes:
     - All operations are performed using elasticsearch REST API 
 requirements: [ ]
@@ -33,7 +33,7 @@ author:
 options:
   name:
     description:
-      - 'Index name'
+      - 'Template name'
     required: true
     default: None
   elasticsearch_url:
@@ -43,62 +43,81 @@ options:
     default: None
   definition:
     description:
-      - Index definition as a json string or as a YAML definition
+      - Template definition as a json string or as a YAML definition
     required: true
     default: None
   state:
     description:
-      - Whether to create (present) or remove (absent) this index. Also accept 'get' value, which return index definition
+      - Whether to create (present) or remove (absent) this template. Also accept 'get' value, which return the template definition
     required: false
     default: present
     choices: [ present, absent, get ]
+
 '''
 
 EXAMPLES = '''
+
 
 - hosts: elastic1
   roles:
   - elastic_modules
   tasks:
-  - name: Create index
-    elasticsearch_index:
-      name: index1
+  - name: Create template
+    elasticsearch_template:
+      name: tmpl1
       elasticsearch_url: "http://elastic1.mydomain.com:9200"
       definition: |
         {
-            "settings" : {
-                "index": {
-                    "number_of_shards" : 1
-                }
-            },
-            "mappings" : {
-                "type1" : {
-                    "properties" : {
-                        "field1" : { "type" : "text" }
-                    }
-                }
+          "index_patterns": ["xte*", "bar*"],
+          "settings": {    
+            "index": {
+                "number_of_shards": 1
             }
-        }
+          },
+          "mappings": {
+            "type1": {
+              "_source": {
+                "enabled": false
+              },
+              "properties": {
+                "host_name": {
+                  "type": "keyword"
+                },
+                "created_at": {
+                  "type": "date",
+                  "format": "EEE MMM dd HH:mm:ss Z YYYY"
+                }
+              }
+            }
+          }
+        }      
       state: present
 
 # One can also use a pure YAML notation. 
 
-  - name: Create index
-    elasticsearch_index:
-      name: test1
+  - name: Create template
+    elasticsearch_template:
+      name: tmpl1
       elasticsearch_url: "http://elastic1.mydomain.com:9200"
       definition:
+        index_patterns: 
+        - "xte*"
+        - "bar*"
         settings:
           index:
             number_of_shards: 1
         mappings:
           type1:
+            _source:
+              enabled: False
             properties:
-              field1:
-                type: text
+              host_name:
+                type: keyword
+              created_at:
+                type: date
+                format: "EEE MMM dd HH:mm:ss Z YYYY"
       state: present
-   
-      
+    
 
 '''
 
@@ -139,6 +158,8 @@ def info(message):
 
 def error(message):
     module.fail_json(msg = message, logs=logs)    
+
+
 
 class Parameters:
     pass
@@ -185,9 +206,6 @@ def diffDefinition(target, current, missing=None):
     return missing
     
 
-# Some token in index definition which are of interest 
-SETTINGS="settings"
-MAPPINGS="mappings"
 
 class EsApi:
     
@@ -217,15 +235,16 @@ class EsApi:
             result = resp.json()
             return result
 
-    def getIndex(self ,name):
-        r = self.get(name, noneStatus=[404])
+
+    def getTemplate(self, name):
+        r = self.get("_template/{}".format(name), noneStatus=[404])
         if r and name in r:
             return r[name]
         else:
             return None
-
-    def deleteIndex(self, name):
-        url = self.endpoint + name
+        
+    def deleteTemplate(self, name):
+        url = self.endpoint + "_template/{}".format(name)
         resp = requests.delete(url)
         debug("HTTP DELETE({})  --> {}".format(url, resp.status_code))        
         if resp.status_code == 200:
@@ -235,52 +254,34 @@ class EsApi:
         else:
             error("Invalid returned http code '{0}' when calling DELETE on '{1}: {2}'".format(resp.status_code, url, resp.text))
 
-    def updateIndexSetting(self, indexName, settings):
-        r = self.put("{}/_settings".format(indexName), settings)
-        return r
-        
-    def setMapping(self, indexName, typeName, mappings):
-        r = self.put("{}/_mapping/{}".format(indexName, typeName), mappings)
-        return r
-        
-        
-    def createIndex(self, name, definition):
-        existing = self.getIndex(name)
+  
+    def createTemplate(self, name, definition):
+        existing = self.getTemplate(name)
         if existing == None:
             # Must create it
-            r2 = self.put(name, definition)
+            self.put("_template/{}".format(name), definition)
             # Will fetch back to ensure all parameters was taken in account
-            existing = self.getIndex(name)
+            existing = self.getTemplate(name)
             missing = diffDefinition(definition, existing)
             if len(missing) == 0:
                 return True
             else:
-                error("Unable to create index '{}'. Would need to handle {}".format(name, missing ))
+                error("Unable to create template '{}'. Would need to handle {}".format(name, missing ))
         else:
             #debug("ALREADY EXIST:\nEXISTING:\n{}\nNEW:\n{}\n".format(pp.pformat(existing), pp.pformat(definition)) )
             missing = diffDefinition(definition, existing)
             if len(missing) == 0:
                 return False
             else:
-                # Check if we have a chance to being able to modify
-                debug("Adjusting index '{}'. Missing/changed values: {}".format(name, missing))
-                for key in missing:
-                    if key != SETTINGS and key != MAPPINGS:
-                        error("Unable to modify index '{}' definition. Changing attribute '{}' is not supported".format(name, key))
-                if SETTINGS in missing:
-                    self.updateIndexSetting(name, missing[SETTINGS])
-                if MAPPINGS in missing:
-                    for key in missing[MAPPINGS]:
-                        self.setMapping(name, key, missing[MAPPINGS][key])
-                # Now, after potential adjustment, check again
-                existing = self.getIndex(name)
-                #debug("FINAL CHECK:\nEXISTING:\n{}\nNEW:\n{}\n".format(pp.pformat(existing), pp.pformat(definition)) )
+                debug("Recreating template '{}'. Missing/changed values: {}".format(name, missing))
+                self.put("_template/{}".format(name), definition)
+                existing = self.getTemplate(name)
                 missing = diffDefinition(definition, existing)
                 if len(missing) == 0:
                     return True
                 else:
-                    error("Unable to adjust index '{}'. Would need to handle {}".format(name, missing ))
-      
+                    error("Unable to adjust template '{}'. Would need to handle {}".format(name, missing ))
+
       
       
       
@@ -327,7 +328,7 @@ def main():
     api = EsApi(p.elasticsearchUrl)
     
     if p.state == ABSENT:
-        p.changed = api.deleteIndex(p.name)
+        p.changed = api.deleteTemplate(p.name)
         module.exit_json(changed=p.changed, logs=logs)
     elif p.state == PRESENT:
         if p.definition == None:
@@ -336,10 +337,10 @@ def main():
         if not isinstance(p.definition, six.string_types):
             p.definition = json.dumps(p.definition)
         definition = json.loads(p.definition)
-        p.changed = api.createIndex(p.name, definition)
+        p.changed = api.createTemplate(p.name, definition)
         module.exit_json(changed=p.changed, logs=logs)
     elif p.state == GET:
-        definition = api.getIndex(p.name)
+        definition = api.getTemplate(p.name)
         if definition != None:
             module.exit_json(changed=False, name=p.name, state="present", definition=definition, logs=logs)
         else:
